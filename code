@@ -1,0 +1,88 @@
+from tensorflow.keras import layers
+import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras.layers import BatchNormalization
+import numpy as np
+from sklearn.model_selection import KFold
+
+# number of epoch that we reach 
+epoch_counter=0
+# the best average that each class has after finish the epoch 
+best_average_threshold=[]
+upper_percantge=120
+lower_percantge=120
+init_classes=False
+epoch_count=[]
+# list to hold the epoch number and always we read the latest number in it to make sure that we are not in the first epoch
+epoch_count.append(0)
+ 
+# create classes lists as global values to use it in other functions 
+def class_List(number_of_classes):
+   for i in range(number_of_classes):
+     globals()[f'l{i}'] = []
+
+# on the last of first epoch we are calc the best average threshol for each class and store these values
+class Epoch_CallBack(tf.keras.callbacks.Callback): 
+    def on_epoch_end(self, epoch, logs={}): 
+      epoch_count.append(epoch+1)
+      #print(epoch_count)
+      for i in range(classes_number):
+        length=len(globals()[f'l{i}'])
+        sum_array=sum(globals()[f'l{i}'])
+        avg=(sum_array/length)
+        best_average_threshold.append(avg)
+    
+epoch_function = Epoch_CallBack()
+
+def percentage(part, whole):
+  percentage = float(whole)/float(100)
+  return percentage*part
+
+
+#This function used to read the epoch number and to register each batch average 
+#pixles data in order to calc each class average threshold data and then after epoch number 1 
+#it will start to check if a batch average pixles is related to its class best average threshold or not. 
+#In case it is in the threshold range it will continue else it will apply BNclass Train_Step_Model(keras.Model):
+    def train_step(self, data):
+        x,y=data
+        batch_size=len(x)
+        if epoch_count[-1]>0:
+          temp=[]
+          for batch in range (batch_size):
+            for row in range (shape-1):
+              for col in range (shape-1):
+                temp.append(x.numpy()[batch,row,col])     
+            average=0 
+            average=sum(temp) / float(len(temp))
+            index=y.numpy()[batch]
+            epsilon=2.220446049250313e-16
+            flag=False
+            lower=best_average_threshold[index]-percentage(upper_percantge,best_average_threshold[index])
+            upper=best_average_threshold[index]+percentage(upper_percantge,best_average_threshold[index])
+            if not (lower <= average <= upper):
+              flag=True
+              mean_x, std_x = tf.nn.moments(x, [0])
+              scale = tf.Variable(tf.ones([1]))
+              beta = tf.Variable(tf.zeros([1]))
+              x=tf.nn.batch_normalization(x,mean_x, std_x, beta,scale,epsilon)
+            temp.clear()
+        else:
+          temp=[]
+          for batch in range (batch_size):
+            for row in range (shape-1):
+              for col in range (shape-1):
+                temp.append(x.numpy()[batch,row,col])     
+            globals()[f'l{y.numpy()[batch]}'].append(sum(temp) / float(len(temp)))
+            temp.clear()
+        with tf.GradientTape() as tape:  
+            y_pred = self(x, training=True) 
+            loss = self.compiled_loss(
+                y,
+                y_pred,
+                regularization_losses=self.losses,
+            )
+        trainable_vars = self.trainable_variables
+        gradient = tape.gradient(loss, trainable_vars)
+        self.optimizer.apply_gradients(zip(gradient, trainable_vars))
+        self.compiled_metrics.update_state(y, y_pred)
+        return {m.name: m.result() for m in self.metrics}
